@@ -17,7 +17,7 @@ object TestRun extends App {
 
   val sc = spark.sparkContext
 
-  println("test message")
+  println("begin message")
 
 //  Чтение синтетики
   val filepath = "./source.csv"
@@ -25,7 +25,6 @@ object TestRun extends App {
     .option("header", "true")
     .option("sep", ";")
     .csv(filepath)
-  rawData.show(2)
 
 //  Делаем из датафрейма rdd + правильная индексация строк
   val dataRDD = rawData.rdd.zipWithIndex()
@@ -72,12 +71,35 @@ object TestRun extends App {
       (systemId, clientId, row, index)
     }
 
-  println("BANK")
-  bankRDD.take(3).foreach(println)
-  println("MARKET")
-  marketRDD.take(3).foreach(println)
-  println("INSURANCE")
-  insuranceRDD.take(3).foreach(println)
+  if (1 == 1) {
+    println("BANK")
+    bankRDD.take(3).foreach(println)
+    println("MARKET")
+    marketRDD.take(3).foreach(println)
+    println("INSURANCE")
+    insuranceRDD.take(3).foreach(println)
+  }
+
+//  Функции нормализации данных
+  def normalizePhone(phone: String): String = {
+    if (phone == null) return ""
+    phone.replaceAll("[^0-9]", "")
+  }
+  def normalizeFio(fio: String): Option[String] = {
+    if (fio == null) return None
+    val cleaned = fio.replaceAll("[^а-яёА-ЯЁ\\s]", "").replaceAll("\\s+", " ").trim
+    val words = cleaned.split("\\s+")
+    if (words.length == 3 && words.forall(_.nonEmpty)) Some(cleaned) else None
+  }
+  def normalizeDocument(doc: String): String = {
+    if (doc == null) return ""
+    doc.replaceAll("[^0-9]", "")
+  }
+  def validateEmail(email: String): Option[String] = {
+    if (email == null) return None
+    val pattern = """^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""".r
+    if (pattern.matches(email)) Some(email) else None
+  }
 
 //  val filtered = dataRDD.filter{case (value, index) => index == 0}
 //  filtered.collect().foreach(println)
