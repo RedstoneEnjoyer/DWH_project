@@ -1,7 +1,9 @@
+import org.apache.spark.api.java.Optional
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
 import org.apache.spark.graphx.{Edge, Graph, GraphLoader, VertexId}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.Row
 
 object TestRun extends App {
   val spark = SparkSession
@@ -80,7 +82,7 @@ object TestRun extends App {
     insuranceRDD.take(3).foreach(println)
   }
 
-//  Функции нормализации данных
+//  Функции нормализации полей
   def normalizePhone(phone: String): String = {
     if (phone == null) return ""
     phone.replaceAll("[^0-9]", "")
@@ -97,13 +99,37 @@ object TestRun extends App {
   }
   def validateEmail(email: String): Option[String] = {
     if (email == null) return None
-    val pattern = """^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""".r
-    if (pattern.matches(email)) Some(email) else None
+    val emailRegex = """^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""".r
+    Some(email).filter(e => emailRegex.pattern.matcher(e).matches)
   }
 
-//  val filtered = dataRDD.filter{case (value, index) => index == 0}
-//  filtered.collect().foreach(println)
+  // вход: RDD[(systemId, clientId, row, index)]
+  // выход: RDD[(systemId, clientId, fioOpt, document, phone0, phone1, phone3, emailOpt, dr, index)]
+  def normalizeData(input: RDD[(Int, Int, Row, Long)]):RDD[(Int, Int, Option[String], String, String, String, String, Option[String], String, Long)] = {
+    input.map { case (systemId, clientId, row, index) =>
+      val fioOpt = normalizeFio(row.getAs[String]("fio"))
+
+      val serialNorm = normalizeDocument(row.getAs[String]("serial_number"))
+      val innNorm = normalizeDocument(row.getAs[String]("inn"))
+      val document = if (serialNorm.nonEmpty) serialNorm else innNorm
+
+      val phone0 = normalizePhone(row.getAs[String]("phone0"))
+      val phone1 = normalizePhone(row.getAs[String]("phone1"))
+      val phone3 = normalizePhone(row.getAs[String]("phone3"))
+
+      val emailOpt = validateEmail(row.getAs[String]("email"))
+      val dr = Option(row.getAs[String]("dr")).getOrElse("")
+
+      (systemId, clientId, fioOpt, document, phone0, phone1, phone3, emailOpt, dr, index)
+    }
+  }
+
+  val normalizedBank = normalizeData(bankRDD)
+  val normalizedInsurance = normalizeData(insuranceRDD)
+  val normalizedMarket = normalizeData(marketRDD)
+
+  val commonData = normalizedBank.union(normalizedInsurance).union(normalizedMarket)
+
 
   println("end message")
-
 }
