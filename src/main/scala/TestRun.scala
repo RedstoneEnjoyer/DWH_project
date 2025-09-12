@@ -73,7 +73,7 @@ object TestRun extends App {
       (systemId, clientId, row, index)
     }
 
-  if (1 == 1) {
+  if (1 == 0) {
     println("BANK")
     bankRDD.take(3).foreach(println)
     println("MARKET")
@@ -130,6 +130,78 @@ object TestRun extends App {
 
   val commonData = normalizedBank.union(normalizedInsurance).union(normalizedMarket)
 
+//  Правила метчинга
+
+//  Утилита для создания ключа (типа хэша)
+  def createKey(fields: List[String]): String = {
+    fields.filter(_.nonEmpty).mkString("|")
+  }
+//  Утилита для извлечения значений полей из записи
+  def extractFields(record: (Int, Int, Option[String], String, String, String, String, Option[String], String, Long),
+                    fieldNames: List[String]): List[String] = {
+    val (systemId, clientId, fioOpt, document, phone0, phone1, phone3, emailOpt, dr, index) = record
+
+    fieldNames.map {
+      case "fio" => fioOpt.getOrElse("")
+      case "document" => document
+      case "phone" => List(phone0, phone1, phone3).find(_.nonEmpty).getOrElse("")
+      case "email" => emailOpt.getOrElse("")
+      case "dr" => dr
+      case _ => ""
+    }
+  }
+//  Правила матчинга в общем виде
+  case class MatchingRule(id: Int, weight: Int, fields: List[String])
+
+  val bankInsuranceRules = List(
+    MatchingRule(1, 80, List("fio", "phone", "dr", "document")), // так как флага телефона нет взял наименьшый вес
+    MatchingRule(2, 70, List("fio", "email", "dr", "document")),
+    MatchingRule(3, 60, List("fio", "dr", "document"))
+  )
+
+  val bankMarketRules = List(
+    MatchingRule(1, 80, List("fio", "phone", "email")), // тоже нет флага
+    MatchingRule(2, 70, List("fio", "email"))
+  )
+
+//  Функция метчинга (Банк + другая система)
+  def performMatching(bankData: RDD[(Int, Int, Option[String], String, String, String, String, Option[String], String, Long)],
+                      otherData: RDD[(Int, Int, Option[String], String, String, String, String, Option[String], String, Long)],
+                      rules: List[MatchingRule]): RDD[((Int, Int), (Int, Int), Int, Int)] = {
+
+    val allMatches = rules.flatMap { rule =>
+//      Создаем ключи для банковских данных
+      val bankKeys = bankData.map { record =>
+        val fields = extractFields(record, rule.fields)
+        val key = createKey(fields)
+        (key, (record._1, record._2)) // (key, (systemId, clientId))
+      }.filter(_._1.nonEmpty)
+
+//      Создаем ключи для других данных
+      val otherKeys = otherData.map { record =>
+        val fields = extractFields(record, rule.fields)
+        val key = createKey(fields)
+        (key, (record._1, record._2)) // (key, (systemId, clientId))
+      }.filter(_._1.nonEmpty)
+
+//      Джойним по ключам
+      val matches = bankKeys.join(otherKeys)
+        .map { case (key, (bankClient, otherClient)) =>
+          (bankClient, otherClient, rule.id, rule.weight)
+        }
+
+      matches.collect()
+    }
+//    Переводим в RDD
+    sc.parallelize(allMatches)
+  }
+
+//  Метчинг трех систем попарно:
+  val bankInsuranceMatches = performMatching(normalizedBank, normalizedInsurance, bankInsuranceRules)
+  val bankMarketMatches = performMatching(normalizedBank, normalizedMarket, bankMarketRules)
+
+  println("BANK AGAIN")
+  bankInsuranceMatches.foreach(println)
 
   println("end message")
 }
