@@ -192,16 +192,29 @@ object TestRun extends App {
 
       matches.collect()
     }
-//    Переводим в RDD
+//    Переводим в RDD и удаляем дубликаты
     sc.parallelize(allMatches)
+      .map { case (bankClient, otherClient, ruleId, weight) =>
+        ((bankClient, otherClient), (ruleId, weight))
+      }
+      .reduceByKey { (tuple1: (Int, Int), tuple2: (Int, Int)) =>
+        val (ruleId1, weight1) = tuple1
+        val (ruleId2, weight2) = tuple2
+        if (weight1 >= weight2) (ruleId1, weight1) else (ruleId2, weight2)
+      }
+      .map { case ((bankClient, otherClient), (ruleId, weight)) =>
+        (bankClient, otherClient, ruleId, weight)
+      }
   }
 
 //  Метчинг трех систем попарно:
   val bankInsuranceMatches = performMatching(normalizedBank, normalizedInsurance, bankInsuranceRules)
   val bankMarketMatches = performMatching(normalizedBank, normalizedMarket, bankMarketRules)
 
-  println("BANK AGAIN")
+  println("BANK - INSURANCE")
   bankInsuranceMatches.foreach(println)
 
+  println("BANK - MARKET")
+  bankMarketMatches.foreach(println)
   println("end message")
 }
